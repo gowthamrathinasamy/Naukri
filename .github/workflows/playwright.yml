@@ -25,4 +25,7 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run Playwright Test
+        env:
+          NAUKRI_EMAIL: ${{ secrets.NAUKRI_EMAIL }}
+          NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
         run: npx playwright test
