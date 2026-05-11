@@ -1,6 +1,8 @@
 
 // To run at 8 AM
 
+//This is not used in github .yml file. Because, In headless, Nuakri stop the auto bot things.
+
 name: Daily Naukri Resume Update
 
 on:
