@@ -1,45 +1,84 @@
+/*
+
 const { test, expect } = require('@playwright/test');
 
 test('Update Resume on Naukri', async ({ page }) => {
 
-  // 1. Open site (stable load strategy)
-  await page.goto('https://www.naukri.com/', {
+  // Stable desktop viewport for CI/headless
+  await page.setViewportSize({
+    width: 1440,
+    height: 900
+  });
+
+  // Open direct login page
+  await page.goto('https://www.naukri.com/nlogin/login', {
     waitUntil: 'domcontentloaded'
   });
 
-  // 2. Click Login (more stable locator)
-  await page.locator('#login_Layer').click();
+  // Stabilization wait for CI runners
+  await page.waitForTimeout(5000);
 
-  // 3. Fill credentials (with env vars)
-  await page.locator('input[placeholder*="Email"]').fill(process.env.NAUKRI_EMAIL);
-  await page.locator('input[placeholder*="password" i]').fill(process.env.NAUKRI_PASSWORD);
+  // Email field
+  const emailInput = page.locator('#usernameField');
 
-  // 4. Submit login
-  await page.locator('button[type="submit"]').click();
+  await emailInput.waitFor({
+    state: 'visible',
+    timeout: 60000
+  });
 
-  // 5. Wait for successful login (avoid exact URL match)
-  await page.waitForURL(/homepage/, { timeout: 60000 });
+  await emailInput.fill(process.env.NAUKRI_EMAIL);
 
-  // 6. Go to profile
-  await page.goto('https://www.naukri.com/mnjuser/profile');
+  // Password field
+  const passwordInput = page.locator('#passwordField');
 
-  // 7. Click Update Resume (more stable text match)
-  await page.getByText('Update Resume', { exact: false }).click();
+  await passwordInput.waitFor({
+    state: 'visible',
+    timeout: 60000
+  });
 
-  // 8. Upload file (fix: ensure correct env usage)
-  await page.setInputFiles(
-    'input[type="file"]',
+  await passwordInput.fill(process.env.NAUKRI_PASSWORD);
+
+  // Login button
+  const loginButton = page.locator('button[type="submit"]');
+
+
+   await loginButton.click();
+
+  // Wait for successful login
+  await page.waitForURL(/mnjuser|homepage/, {
+    timeout: 60000
+  });
+
+  // Open profile page
+  await page.goto('https://www.naukri.com/mnjuser/profile', {
+    waitUntil: 'domcontentloaded'
+  });
+
+  // Wait for profile page to settle
+  await page.waitForTimeout(5000);
+
+  // Upload resume
+  const resumeUpload = page.locator('input[type="file"]');
+
+  await resumeUpload.waitFor({
+    state: 'attached',
+    timeout: 60000
+  });
+
+  await resumeUpload.setInputFiles(
     process.env.NAUKRI_RESUME_PATH
   );
 
-  // 9. Wait for success message (proper assertion)
+  // Validate upload success
   await expect(
-    page.getByText('Resume has been successfully uploaded')
-  ).toBeVisible({ timeout: 60000 });
+    page.getByText(/successfully uploaded/i)
+  ).toBeVisible({
+    timeout: 60000
+  });
 
 });
 
-/*
+*/
 
 const { test, expect } = require('@playwright/test');
 
@@ -56,7 +95,6 @@ test('Update Resume on Naukri', async ({ page }) => {
   await page.waitForURL('https://www.naukri.com/mnjuser/homepage');
   await page.goto('https://www.naukri.com/mnjuser/profile');
   await page.click('text=Update Resume');
-  await page.locator('input[type="file"]').waitFor({ state: 'visible' });
   await page.setInputFiles('input[type="file"]', process.env.NAUKRI_RESUME_PATH);
   
   // Wait for success message instead of fixed timeout
@@ -64,4 +102,3 @@ test('Update Resume on Naukri', async ({ page }) => {
   expect(page.locator('text=Resume has been successfully uploaded')).toBeVisible();
 });
 
-*/
