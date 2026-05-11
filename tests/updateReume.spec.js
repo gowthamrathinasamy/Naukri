@@ -83,11 +83,7 @@ test('Update Resume on Naukri', async ({ page }) => {
 const { test, expect } = require('@playwright/test');
 
 test('Update Resume on Naukri', async ({ page }) => {
-  await page.goto('https://www.naukri.com/' ,
-    {
-    waitUntil: 'domcontentloaded'
-    }
-);
+  await page.goto('https://www.naukri.com/');
   await page.click('text=Login');
   await page.fill('input[placeholder="Enter your active Email ID / Username"]', process.env.NAUKRI_EMAIL);
   await page.fill('input[placeholder="Enter your password"]', process.env.NAUKRI_PASSWORD);
