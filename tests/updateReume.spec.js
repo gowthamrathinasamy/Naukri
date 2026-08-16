@@ -1,18 +1,23 @@
 const { test, expect } = require('@playwright/test');
+const PageObjectClass = require('../pageObject/PageObjectClass.js');
 
-test('Update Resume on Naukri', async ({ page }) => {
-  await page.goto('https://www.naukri.com/');
-  await page.click('text=Login');
-  await page.fill('input[placeholder="Enter your active Email ID / Username"]', process.env.NAUKRI_EMAIL);
-  await page.fill('input[placeholder="Enter your password"]', process.env.NAUKRI_PASSWORD);
-  await page.click('button[type="submit"]');
-  await page.waitForURL('https://www.naukri.com/mnjuser/homepage');
-  await page.goto('https://www.naukri.com/mnjuser/profile');
-  await page.click('text=Update Resume');
-  await page.setInputFiles('input[type="file"]', process.env.NAUKRI_RESUME_PATH);
-  
-  // Wait for success message instead of fixed timeout
-  await page.locator('text=Resume has been successfully uploaded').waitFor({ state: 'visible', timeout: 10000 });
-  expect(page.locator('text=Resume has been successfully uploaded')).toBeVisible();
+test('Update Resume on Naukri', async ({ browser }) => {
+  const context = await browser.newContext({
+    storageState: 'storageState.json'
+  });
+
+  const page = await context.newPage();
+
+  const pageObject = new PageObjectClass(page);
+
+  await pageObject.goto('https://www.naukri.com/mnjuser/homepage');
+  await pageObject.goto('https://www.naukri.com/mnjuser/profile');
+
+  await pageObject.updateResume(process.env.NAUKRI_RESUME_PATH);
+
+  await expect(
+    page.locator('text=Resume has been successfully uploaded')
+  ).toBeVisible({ timeout: 10000 });
+
+  await context.close();
 });
-
