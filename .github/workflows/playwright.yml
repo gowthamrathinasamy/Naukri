@@ -17,7 +17,7 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Create Playwright storage state
-        run: |
+      run: |
           echo '${{ secrets.NAUKRI_STORAGE_STATE }}' > storageState.json
     - name: Run Playwright tests
       run: xvfb-run -a npx playwright test
