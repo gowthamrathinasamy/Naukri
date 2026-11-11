@@ -11,12 +11,13 @@ if (fs.existsSync(envPath)) {
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
-  reporter: 'html',
+  reporter: [['html', { open: 'never' }]],
   timeout: 50000,
   use: {
     headless: false,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    trace: 'retain-on-failure',
     storageState: 'storageState.json'
   },
   projects: [
@@ -26,4 +27,3 @@ export default defineConfig({
     },
   ],
 });
-

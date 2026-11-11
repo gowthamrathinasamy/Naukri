@@ -41,7 +41,7 @@ class PageObjectClass {
             '.tab-list-item';
 
         const checkboxSelector =
-            'div.saveJobContainer.tuple-check-box i.naukicon-ot-checkbox';
+            'label.saveJobContainer.tuple-check-box';
 
         const applyButtonSelector =
             '.multi-apply-button.typ-16Bold';
@@ -57,24 +57,107 @@ class PageObjectClass {
         const batchSize = 5;
 
         let screenshotNumber = 1;
+        const attemptedJobKeys = new Set();
+        const applyButton =
+            this.page.locator(applyButtonSelector);
 
+        const getSelectedJobCount = async () => {
+            const buttonText = await applyButton.innerText();
+            const match = buttonText.match(/apply\s+(\d+)\s+jobs?/i);
+            return match ? Number(match[1]) : 0;
+        };
+
+        const clearSelectedJobs = async (jobCards) => {
+            const jobCount = await jobCards.count();
+
+            for (let i = 0; i < jobCount; i++) {
+                const checkbox = jobCards.nth(i).getByRole('checkbox');
+
+                if (
+                    await checkbox.count() > 0 &&
+                    await checkbox.isChecked()
+                ) {
+                    await jobCards.nth(i).click();
+
+                    if (await checkbox.isChecked()) {
+                        throw new Error(
+                            `Could not clear selected job ${i + 1}; its selection control remained checked after clicking the job label.`
+                        );
+                    }
+                }
+            }
+
+            const remainingSelectionCount =
+                await getSelectedJobCount();
+
+            if (remainingSelectionCount !== 0) {
+                throw new Error(
+                    `Could not clear previous selection; Apply button still shows ${remainingSelectionCount} selected jobs.`
+                );
+            }
+        };
+
+        const openRecommendedJobs = async () => {
+            const tabs = this.page.locator(tabSelector);
+            const onRecommendedJobs =
+                this.page.url().startsWith(recommendedJobsUrl);
+
+            if (
+                onRecommendedJobs &&
+                await tabs.count() > 0 &&
+                await tabs.first().isVisible()
+            ) {
+                return;
+            }
+
+            await this.page.goto(recommendedJobsUrl, {
+                waitUntil: 'commit',
+                timeout: 30000
+            });
+
+            await tabs.first().waitFor({
+                state: 'visible',
+                timeout: 15000
+            });
+        };
+
+        const openRecommendedTab = async (tabIndex) => {
+            await openRecommendedJobs();
+
+            const tab = this.page
+                .locator(tabSelector)
+                .nth(tabIndex);
+
+            await tab.waitFor({
+                state: 'visible',
+                timeout: 10000
+            });
+            await tab.click();
+
+            try {
+                await this.page
+                    .locator(checkboxSelector)
+                    .first()
+                    .waitFor({
+                        state: 'visible',
+                        timeout: 10000
+                    });
+            } catch (error) {
+                if (error.name !== 'TimeoutError') {
+                    throw error;
+                }
+
+                console.log(
+                    `Tab ${tabIndex + 1}: No job checkboxes became visible after opening the tab.`
+                );
+            }
+        };
 
         // =====================================================
         // OPEN RECOMMENDED JOBS
         // =====================================================
 
-        await this.page.goto(recommendedJobsUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000
-        });
-
-        await this.page
-            .locator(tabSelector)
-            .first()
-            .waitFor({
-                state: 'visible',
-                timeout: 15000
-            });
+        await openRecommendedJobs();
 
 
         // =====================================================
@@ -105,77 +188,19 @@ class PageObjectClass {
 
 
             // -------------------------------------------------
-            // Reload only when moving to a NEW tab
-            // -------------------------------------------------
-
-            if (tabIndex > 0) {
-
-                await this.page.goto(
-                    recommendedJobsUrl,
-                    {
-                        waitUntil: 'domcontentloaded',
-                        timeout: 30000
-                    }
-                );
-
-                await this.page
-                    .locator(tabSelector)
-                    .first()
-                    .waitFor({
-                        state: 'visible',
-                        timeout: 15000
-                    });
-            }
-
-
-            // -------------------------------------------------
             // OPEN TAB
             // -------------------------------------------------
 
-            const tabs =
-                this.page.locator(tabSelector);
-
-            await tabs
-                .nth(tabIndex)
-                .click();
+            await openRecommendedTab(tabIndex);
 
             console.log(
                 `Opened Tab ${tabIndex + 1}.`
             );
 
 
-            // -------------------------------------------------
-            // WAIT FOR JOBS TO LOAD
-            // -------------------------------------------------
-
-            const checkboxes =
-                this.page.locator(checkboxSelector);
-
-            try {
-
-                await checkboxes
-                    .first()
-                    .waitFor({
-                        state: 'visible',
-                        timeout: 10000
-                    });
-
-            } catch {
-
-                console.log(
-                    `Tab ${tabIndex + 1}: No checkbox found.`
-                );
-            }
-
-
-            await this.page.waitForTimeout(1000);
-
-
             // =================================================
             // PROCESS CURRENT TAB
             // =================================================
-
-            let previousJobCount = -1;
 
             while (true) {
 
@@ -195,6 +220,15 @@ class PageObjectClass {
                 // -------------------------------------------------
 
                 if (jobCount === 0) {
+                    if (!this.page.url().startsWith(recommendedJobsUrl)) {
+                        console.log(
+                            `Tab ${tabIndex + 1}: Apply left the recommendations page. Returning to the same tab to continue.`
+                        );
+
+                        await openRecommendedTab(tabIndex);
+
+                        continue;
+                    }
 
                     console.log(
                         `Tab ${tabIndex + 1}: No more jobs.`
@@ -203,62 +237,121 @@ class PageObjectClass {
                     break;
                 }
 
-
-                // -------------------------------------------------
-                // SAFETY CHECK
-                //
-                // If the count doesn't change after applying,
-                // don't keep applying the same jobs forever.
-                // -------------------------------------------------
-
-                if (
-                    previousJobCount === jobCount
-                ) {
-
+                if (await getSelectedJobCount() > 0) {
                     console.log(
-                        `Tab ${tabIndex + 1}: Job count did not change.`
+                        `Tab ${tabIndex + 1}: Clearing selections left from the previous batch.`
+                    );
+                    await clearSelectedJobs(currentCheckboxes);
+                }
+
+
+                // -------------------------------------------------
+                // FIND THE NEXT BATCH OF UNPROCESSED JOBS
+                // -------------------------------------------------
+
+                const jobsToApply = [];
+
+                for (let i = 0; i < jobCount; i++) {
+                    const checkbox = currentCheckboxes.nth(i);
+                    const jobKey = await checkbox.evaluate(
+                        (element, { currentTabIndex, jobIndex, checkboxSelector }) => {
+                            let node = element;
+
+                            for (let depth = 0; node && depth < 12; depth++) {
+                                const jobId =
+                                    node.getAttribute('data-job-id') ||
+                                    node.getAttribute('data-jobid');
+
+                                if (jobId) {
+                                    return `id:${jobId}`;
+                                }
+
+                                const jobLink = node.matches?.(
+                                    'a[href*="/job-listings/"]'
+                                )
+                                    ? node
+                                    : node.querySelector(
+                                        'a[href*="/job-listings/"]'
+                                    );
+
+                                if (jobLink) {
+                                    return `url:${jobLink.href.split(/[?#]/)[0]}`;
+                                }
+
+                                const text = node.innerText
+                                    ?.replace(/\s+/g, ' ')
+                                    .trim();
+
+                                const checkboxCount =
+                                    node.querySelectorAll(checkboxSelector).length;
+
+                                if (
+                                    checkboxCount === 1 &&
+                                    text &&
+                                    text.length > 30 &&
+                                    text.length < 2000
+                                ) {
+                                    return `text:${text}`;
+                                }
+
+                                node = node.parentElement;
+                            }
+
+                            return `tab:${currentTabIndex}:index:${jobIndex}`;
+                        },
+                        {
+                            currentTabIndex: tabIndex,
+                            jobIndex: i,
+                            checkboxSelector
+                        }
                     );
 
+                    if (!attemptedJobKeys.has(jobKey)) {
+                        jobsToApply.push({ checkbox, jobKey });
+                    }
+
+                }
+
+                if (jobsToApply.length === 0) {
                     console.log(
-                        'Stopping this tab to prevent duplicate applications.'
+                        `Tab ${tabIndex + 1}: All ${jobCount} jobs have already been processed.`
                     );
 
                     break;
                 }
 
-
-                previousJobCount = jobCount;
-
-
-                // -------------------------------------------------
-                // SELECT MAXIMUM 5
-                // -------------------------------------------------
-
-                const currentBatch =
-                    Math.min(
-                        batchSize,
-                        jobCount
-                    );
+                const currentBatch = jobsToApply.slice(0, batchSize);
 
                 console.log(
-                    `Selecting ${currentBatch} jobs...`
+                    `Tab ${tabIndex + 1}: ${jobsToApply.length} unprocessed jobs found; applying the next ${currentBatch.length}.`
                 );
 
 
-                for (
-                    let i = 0;
-                    i < currentBatch;
-                    i++
-                ) {
+                for (let i = 0; i < currentBatch.length; i++) {
+                    const selectedCount = await getSelectedJobCount();
 
-                    await currentCheckboxes
-                        .nth(i)
-                        .click();
+                    if (selectedCount >= batchSize) {
+                        throw new Error(
+                            `Selection limit reached (${selectedCount}); refusing to select another job.`
+                        );
+                    }
+
+                    const job = currentBatch[i];
+                    await job.checkbox.click();
+
+                    const selectedCountAfterClick =
+                        await getSelectedJobCount();
+
+                    if (selectedCountAfterClick > batchSize) {
+                        throw new Error(
+                            `Naukri reports ${selectedCountAfterClick} selected jobs; the maximum is ${batchSize}.`
+                        );
+                    }
                 }
 
 
                 console.log(
-                    `Selected ${currentBatch} jobs.`
+                    `Selected ${currentBatch.length} jobs.`
                 );
 
 
@@ -266,21 +359,52 @@ class PageObjectClass {
                 // CLICK APPLY
                 // -------------------------------------------------
 
-                const applyButton =
-                    this.page.locator(
-                        applyButtonSelector
-                    );
-
                 await applyButton.waitFor({
                     state: 'visible',
                     timeout: 10000
                 });
 
+                const applyButtonText = await applyButton.innerText();
+                const selectedJobCount = await getSelectedJobCount();
+
+                if (
+                    selectedJobCount !== currentBatch.length
+                ) {
+                    throw new Error(
+                        `Expected ${currentBatch.length} selected jobs, but the Apply button shows "${applyButtonText.trim()}".`
+                    );
+                }
+
                 await applyButton.click();
 
+                for (const job of currentBatch) {
+                    attemptedJobKeys.add(job.jobKey);
+                }
+
                 console.log(
-                    `Applied button clicked for ${currentBatch} jobs.`
+                    `Applied button clicked for ${currentBatch.length} jobs.`
                 );
+
+                await this.page.waitForTimeout(1000);
+
+                const pageText = await this.page.locator('body').innerText();
+                const requestErrorMessage =
+                    /there was some error processing your request/i;
+
+                if (requestErrorMessage.test(pageText)) {
+                    console.log(
+                        `Tab ${tabIndex + 1}: Naukri reported an application error for this batch. Marking these jobs as attempted and continuing with the next batch.`
+                    );
+                }
+
+                if (
+                    /mandatory questions|application questions?|screening questions?|please answer|required question/i
+                        .test(pageText)
+                ) {
+                    console.log(
+                        'Question prompt detected. Leaving questions unanswered and continuing to the next batch.'
+                    );
+                }
 
 
                 // =================================================
@@ -325,6 +449,20 @@ class PageObjectClass {
                     );
                 }
 
+                if (!this.page.url().startsWith(recommendedJobsUrl)) {
+                    console.log(
+                        `Tab ${tabIndex + 1}: Apply navigated away. Returning to this tab before continuing.`
+                    );
+                    await openRecommendedTab(tabIndex);
+                    continue;
+                }
+
+                if (this.page.url().startsWith(recommendedJobsUrl)) {
+                    await clearSelectedJobs(
+                        this.page.locator(checkboxSelector)
+                    );
+                }
+
 
                 // =================================================
                 // SCREENSHOT
@@ -345,22 +483,8 @@ class PageObjectClass {
                 screenshotNumber++;
 
 
-                // -------------------------------------------------
-                // DO NOT RELOAD HERE
-                // -------------------------------------------------
-
-                console.log(
-                    'Staying on current page after Apply.'
-                );
-
-
-                /*
-                 * Give Naukri a moment to update its UI.
-                 *
-                 * Then the while loop checks the current DOM
-                 * again.
-                 */
-
+                // Keep the current recommendations page alive between batches.
+                // Reloading here can be interrupted by Naukri's Apply navigation.
                 await this.page.waitForTimeout(1000);
             }
 
@@ -368,6 +492,12 @@ class PageObjectClass {
             console.log(
                 `========== TAB ${tabIndex + 1} COMPLETED ==========\n`
             );
+
+            if (tabIndex + 1 < tabCount) {
+                console.log(
+                    `Tab ${tabIndex + 1} is finished. Next: tab ${tabIndex + 2} of ${tabCount}.`
+                );
+            }
         }
 
 
