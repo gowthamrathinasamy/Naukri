@@ -1,8 +1,6 @@
 name: Playwright Tests
 on:
    workflow_dispatch:
-   schedule:
-    - cron: '30 1 * * *'
 jobs:
   test:
     timeout-minutes: 60
